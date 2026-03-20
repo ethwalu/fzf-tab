@@ -130,6 +130,8 @@ zstyle ':fzf-tab:*' switch-group '<' '>'
 
 fzf-tab has built-in support for translating completion descriptions via the [DeepL](https://www.deepl.com/pro-api) API. On first `<Tab>`, descriptions are translated and cached; subsequent completions load from cache in under 1ms.
 
+**Prerequisites:** `python3` and `curl` must be available in `$PATH`.
+
 **Setup:**
 
 ```zsh
