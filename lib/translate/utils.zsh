@@ -18,7 +18,7 @@ typeset -g _FTB_TR_PYTHON=""
 _ftb_tr_log() {
   (( FTB_TRANSLATE_DEBUG )) || return 0
   local level="$1"; shift
-  print "$(date '+%H:%M:%S') [${(U)level}] $*" >> "$_FTB_TR_LOG_FILE"
+  print "${(%):-%D{%H:%M:%S}} [${(U)level}] $*" >> "$_FTB_TR_LOG_FILE"
 }
 
 # URL 编码

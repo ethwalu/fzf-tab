@@ -128,6 +128,7 @@ zsh -c '
 
   local cmd="$1" tmp="$2"
   local cache_var="_ftb_tr_cache_${cmd}"
+  local _lock="${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
 
   _ftb_tr_log info "[后台] 启动: $cmd"
 
@@ -146,7 +147,7 @@ zsh -c '
 
   if (( ${#descs[@]} == 0 )); then
     _ftb_tr_log warn "[后台] 待翻译列表为空: $cmd"
-    rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
+    rm -f "$_lock"
     return
   fi
 
@@ -157,7 +158,7 @@ zsh -c '
 
   if (( ${#translations[@]} == 0 )); then
     _ftb_tr_log error "[后台] 翻译失败，无结果返回: $cmd"
-    rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
+    rm -f "$_lock"
     return 1
   fi
 
@@ -171,6 +172,6 @@ zsh -c '
   done
 
   _ftb_tr_cache_save "$cmd"
-  rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
+  rm -f "$_lock"
   _ftb_tr_log info "[后台] 完成: $cmd"
 ' -- "$_tr_cmd" "$_tr_tmp" </dev/null >/dev/null 2>/dev/null &!
