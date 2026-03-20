@@ -144,6 +144,7 @@ builtin unalias -m '[^+]*'
   emulate -L zsh -o extended_glob
 
   local _ftb_query _ftb_complist=() _ftb_headers=() command opts
+  -ftb-zstyle -t translate && -ftb-translate
   -ftb-generate-complist # sets `_ftb_complist`
 
   -ftb-zstyle -s continuous-trigger continuous_trigger || {

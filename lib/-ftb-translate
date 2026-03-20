@@ -1,0 +1,149 @@
+#!/hint/zsh
+# -ftb-translate: 在 -ftb-generate-complist 前替换 _ftb_compcap 中的英文描述
+#
+# 触发条件：zstyle ':fzf-tab:*' translate true
+# API 密钥：export FTB_DEEPL_KEY="your-key:fx"
+#
+# _ftb_compcap 元素格式：
+#   <description>\x02<metadata>
+# description 通常为 "word -- english description"
+# metadata 中含 \x00word\x00<actual_word>
+
+# 首次调用时懒加载翻译模块
+if [[ -z "$_ftb_tr_initialized" ]]; then
+  source "$FZF_TAB_HOME/lib/translate/init.zsh"
+  source "$FZF_TAB_HOME/lib/translate/utils.zsh"
+  source "$FZF_TAB_HOME/lib/translate/cache.zsh"
+  source "$FZF_TAB_HOME/lib/translate/key.zsh"
+  source "$FZF_TAB_HOME/lib/translate/deepl.zsh"
+  typeset -g _ftb_tr_initialized=1
+fi
+
+(( $#_ftb_compcap == 0 )) && return
+
+# 从补全上下文检测当前命令名
+local _tr_cmd=""
+if [[ -n "$_ftb_curcontext" ]]; then
+  local -a _tr_ctx=("${(@s.:.)_ftb_curcontext}")
+  local _tr_i
+  for (( _tr_i=1; _tr_i<=${#_tr_ctx[@]}; _tr_i++ )); do
+    if [[ "${_tr_ctx[$_tr_i]}" == "complete" && -n "${_tr_ctx[$((_tr_i+1))]}" ]]; then
+      _tr_cmd="${_tr_ctx[$((_tr_i+1))]}"
+      break
+    fi
+  done
+fi
+[[ -z "$_tr_cmd" && -n "$BUFFER" ]] && _tr_cmd="${${BUFFER## #}%% *}"
+[[ -z "$_tr_cmd" ]] && return
+
+# 每次重新从磁盘加载缓存（后台翻译完成后可能有新数据）
+_ftb_tr_cache_load "$_tr_cmd" 2>/dev/null
+
+local _tr_cache_var="_ftb_tr_cache_${_tr_cmd}"
+(( ${(P)+_tr_cache_var} )) || typeset -gA "$_tr_cache_var"
+
+# 遍历 _ftb_compcap，替换已缓存的描述，收集未缓存的
+local -a _tr_new_compcap=()
+local -a _tr_uncached_words=() _tr_uncached_descs=()
+local _tr_item _tr_dscr _tr_meta _tr_word _tr_eng _tr_result
+
+for _tr_item in "${_ftb_compcap[@]}"; do
+  _tr_dscr="${_tr_item%%$'\2'*}"
+  _tr_meta="${_tr_item#*$'\2'}"
+  _tr_word="${_tr_meta##*$'\0word\0'}"
+  _tr_word="${_tr_word%%$'\0'*}"
+
+  _tr_result="${${(P)_tr_cache_var}[$_tr_word]}"
+
+  if [[ -n "$_tr_result" ]]; then
+    # 替换 -- 后面的英文描述为翻译结果
+    if [[ "$_tr_dscr" == *" -- "* ]]; then
+      _tr_new_compcap+=("${_tr_dscr%% -- *} -- ${_tr_result}"$'\2'"${_tr_meta}")
+    else
+      _tr_new_compcap+=("${_tr_word} -- ${_tr_result}"$'\2'"${_tr_meta}")
+    fi
+  else
+    _tr_new_compcap+=("$_tr_item")
+    # 收集有英文描述的未缓存条目
+    if [[ "$_tr_dscr" == *" -- "* ]]; then
+      _tr_eng="${_tr_dscr#* -- }"
+      if [[ -n "$_tr_eng" ]]; then
+        _tr_uncached_words+=("$_tr_word")
+        _tr_uncached_descs+=("$_tr_eng")
+      fi
+    fi
+  fi
+done
+
+_ftb_compcap=("${_tr_new_compcap[@]}")
+
+# 有未缓存条目且无后台翻译进行中，启动异步翻译
+if (( ${#_tr_uncached_words[@]} == 0 )); then
+  return
+fi
+
+local _tr_lock="${FTB_TRANSLATE_CACHE_DIR}/.translating_${_tr_cmd}"
+[[ -f "$_tr_lock" ]] && return
+
+touch "$_tr_lock"
+
+# 将待翻译条目写入临时文件（word\tdesc 格式，每行一条）
+local _tr_tmp="${FTB_TRANSLATE_CACHE_DIR}/.pending_${_tr_cmd}.tsv"
+{
+  local _tr_j
+  for (( _tr_j=1; _tr_j<=${#_tr_uncached_words[@]}; _tr_j++ )); do
+    print -r -- "${_tr_uncached_words[$_tr_j]}"$'\t'"${_tr_uncached_descs[$_tr_j]}"
+  done
+} > "$_tr_tmp"
+
+# 启动独立 zsh 进程在后台完成翻译并写回缓存
+FZF_TAB_HOME="$FZF_TAB_HOME" \
+FTB_TRANSLATE_API="$FTB_TRANSLATE_API" \
+FTB_TRANSLATE_LANG="$FTB_TRANSLATE_LANG" \
+FTB_TRANSLATE_TIMEOUT="$FTB_TRANSLATE_TIMEOUT" \
+FTB_TRANSLATE_CACHE_DIR="$FTB_TRANSLATE_CACHE_DIR" \
+FTB_TRANSLATE_KEY_DIR="$FTB_TRANSLATE_KEY_DIR" \
+FTB_DEEPL_KEY="${FTB_DEEPL_KEY:-}" \
+zsh -c '
+  source "$FZF_TAB_HOME/lib/translate/init.zsh"
+  source "$FZF_TAB_HOME/lib/translate/utils.zsh"
+  source "$FZF_TAB_HOME/lib/translate/cache.zsh"
+  source "$FZF_TAB_HOME/lib/translate/key.zsh"
+  source "$FZF_TAB_HOME/lib/translate/deepl.zsh"
+
+  local cmd="$1" tmp="$2"
+  local cache_var="_ftb_tr_cache_${cmd}"
+
+  # 加载现有缓存（如有）
+  _ftb_tr_cache_load "$cmd" 2>/dev/null
+  typeset -gA "$cache_var" 2>/dev/null
+
+  # 读取待翻译条目
+  local -a words=() descs=()
+  local w d
+  while IFS=$'"'"'\t'"'"' read -r w d; do
+    words+=("$w")
+    descs+=("$d")
+  done < "$tmp"
+  rm -f "$tmp"
+
+  if (( ${#descs[@]} == 0 )); then
+    rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
+    return
+  fi
+
+  # 批量调用 DeepL
+  local -a translations=("${(@f)$(_ftb_tr_deepl_batch "${descs[@]}")}")
+
+  # 写入缓存
+  local i k v
+  for (( i=1; i<=${#words[@]}; i++ )); do
+    [[ -n "${translations[$i]}" ]] || continue
+    k="${words[$i]}"
+    v="${translations[$i]}"
+    eval "${cache_var}[\$k]=\$v"
+  done
+
+  _ftb_tr_cache_save "$cmd"
+  rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
+' -- "$_tr_cmd" "$_tr_tmp" </dev/null >/dev/null 2>/dev/null &!

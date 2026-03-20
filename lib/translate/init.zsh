@@ -1,0 +1,10 @@
+# fzf-tab 翻译功能初始化
+
+typeset -g FTB_TRANSLATE_API="${FTB_TRANSLATE_API:-deepl}"
+typeset -g FTB_TRANSLATE_LANG="${FTB_TRANSLATE_LANG:-ZH}"
+typeset -g FTB_TRANSLATE_TIMEOUT="${FTB_TRANSLATE_TIMEOUT:-10}"
+typeset -g FTB_TRANSLATE_CACHE_DIR="${FTB_TRANSLATE_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/fzf-tab/translate}"
+typeset -g FTB_TRANSLATE_KEY_DIR="${FTB_TRANSLATE_KEY_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/fzf-tab}"
+
+[[ -d "$FTB_TRANSLATE_CACHE_DIR" ]] || mkdir -p "$FTB_TRANSLATE_CACHE_DIR"
+[[ -d "$FTB_TRANSLATE_KEY_DIR" ]] || mkdir -p "$FTB_TRANSLATE_KEY_DIR"

@@ -20,6 +20,7 @@ Replace zsh's default completion selection menu with fzf!
   - [Prezto](#prezto)
 - [Usage](#usage)
   - [Configure](#configure)
+  - [Translation](#translation)
   - [Tmux](#tmux)
   - [Binary module](#binary-module)
 - [Difference from other plugins](#difference-from-other-plugins)
@@ -124,6 +125,50 @@ zstyle ':fzf-tab:*' use-fzf-default-opts yes
 # switch group using `<` and `>`
 zstyle ':fzf-tab:*' switch-group '<' '>'
 ```
+
+## Translation
+
+fzf-tab has built-in support for translating completion descriptions via the [DeepL](https://www.deepl.com/pro-api) API. On first `<Tab>`, descriptions are translated and cached; subsequent completions load from cache in under 1ms.
+
+**Setup:**
+
+```zsh
+# 1. Enable translation
+zstyle ':fzf-tab:*' translate true
+
+# 2. Set your DeepL API key (free tier keys end with :fx)
+export FTB_DEEPL_KEY="your-api-key:fx"
+```
+
+**Optional settings:**
+
+```zsh
+# Target language (default: ZH)
+export FTB_TRANSLATE_LANG="ZH"
+
+# API timeout in seconds (default: 10)
+export FTB_TRANSLATE_TIMEOUT=10
+
+# Cache directory (default: ~/.cache/fzf-tab/translate)
+export FTB_TRANSLATE_CACHE_DIR="$HOME/.cache/fzf-tab/translate"
+
+# Key file directory (default: ~/.config/fzf-tab)
+export FTB_TRANSLATE_KEY_DIR="$HOME/.config/fzf-tab"
+```
+
+You can also store the key in a file instead of an environment variable:
+
+```zsh
+# Key file: $FTB_TRANSLATE_KEY_DIR/deepl.key (chmod 600, auto-set)
+echo "your-api-key:fx" > ~/.config/fzf-tab/deepl.key
+chmod 600 ~/.config/fzf-tab/deepl.key
+```
+
+**How it works:**
+
+1. On each `<Tab>`, descriptions not yet in cache are sent to DeepL in a single batch request (async background process)
+2. Results are saved to `~/.cache/fzf-tab/translate/<command>.zsh`
+3. On the next `<Tab>` the translated descriptions are shown instantly from cache
 
 ## Tmux
 
