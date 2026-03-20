@@ -25,7 +25,6 @@ ftb_preview_init+=$'\n'
 
 local default_binds=tab:down,btab:up,change:top,ctrl-space:toggle,bspace:backward-delete-char/eof,ctrl-h:backward-delete-char/eof
 local fzf_command fzf_flags fzf_preview debug_command tmp switch_group active_group_style fzf_pad fzf_min_height binds
-local -a fzf_listen_flag=()
 local ret=0
 
 -ftb-zstyle -s fzf-command fzf_command || fzf_command=fzf
@@ -48,18 +47,6 @@ local -a _active_style_lower=(${(L)active_group_style})
 local -a _active_style_valid=(${(M)_active_style_lower:#(bold|underline|none)})
 local -a _active_style_sorted=(${(ou)_active_style_valid})
 local normalized_active_group_style=${${(j:,:)_active_style_sorted}:-none}
-
-# 后台翻译已启动，开启 fzf --listen 以便翻译完成后通过 reload 刷新补全列表
-# 要求：fzf >= 0.43.0，translate 功能已启用，_FTB_TR_PYTHON 可用
-if (( _ftb_tr_async_started )) && [[ -n "$_FTB_TR_PYTHON" ]] \
-    && _ftb_tr_check_fzf_listen; then
-  local _fzf_listen_port
-  _fzf_listen_port=$(_ftb_tr_pick_port) && (( _fzf_listen_port > 0 )) && {
-    print -r -- "$_fzf_listen_port" > "$tmp_dir/fzf_listen.$$"
-    fzf_listen_flag=(--listen=127.0.0.1:$_fzf_listen_port)
-    _ftb_tr_log info "fzf --listen 启动: 端口 $_fzf_listen_port"
-  }
-fi
 
 print -rl -- $_ftb_compcap > $tmp_dir/compcap.$$
 print -rl -- $_ftb_groups  > $tmp_dir/groups.$$
@@ -117,7 +104,6 @@ FZF_DEFAULT_OPTS=$fzf_default_opts SHELL=$ZSH_NAME ${(z)fzf_command} \
   --query=$_ftb_query \
   --tiebreak=begin \
   ${fzf_preview:+--preview=${ftb_preview_init}$fzf_preview} \
-  "${fzf_listen_flag[@]}" \
   $fzf_flags < $tmp_dir/completions.$$ || ret=$?
 
 if (( ! use_tmux_popup )); then

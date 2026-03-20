@@ -1,4 +1,4 @@
-# 工具函数：Python 路径查找、URL 编码、日志、fzf 能力检测
+# 工具函数：Python 路径查找、URL 编码、日志
 
 typeset -g _FTB_TR_PYTHON=""
 
@@ -30,37 +30,4 @@ _ftb_tr_urlencode() {
   else
     print -r -- "${1// /%20}"
   fi
-}
-
-# 检测 fzf 是否支持 --listen（需要 0.43.0+），结果缓存到会话变量
-_ftb_tr_check_fzf_listen() {
-  [[ -n "${_ftb_tr_fzf_listen_support+_}" ]] && return $_ftb_tr_fzf_listen_support
-  autoload -Uz is-at-least
-  local ver
-  ver=$(fzf --version 2>/dev/null | cut -d' ' -f1)
-  typeset -g _ftb_tr_fzf_listen_support=1  # 默认：不支持
-  if [[ -n "$ver" ]] && is-at-least 0.43.0 "$ver"; then
-    _ftb_tr_fzf_listen_support=0
-    _ftb_tr_log debug "fzf --listen 支持已确认 (version=$ver)"
-  else
-    _ftb_tr_log debug "fzf 不支持 --listen (version=${ver:-unknown})，跳过实时刷新"
-  fi
-  return $_ftb_tr_fzf_listen_support
-}
-
-# 选取一个空闲的本地 TCP 端口，通过 stdout 输出端口号
-_ftb_tr_pick_port() {
-  [[ -z "$_FTB_TR_PYTHON" ]] && return 1
-  local port
-  port=$("$_FTB_TR_PYTHON" -c "
-import socket, sys
-try:
-    s = socket.socket()
-    s.bind(('127.0.0.1', 0))
-    print(s.getsockname()[1])
-    s.close()
-except Exception:
-    sys.exit(1)
-" 2>/dev/null) || return 1
-  [[ -n "$port" ]] && print -r -- "$port"
 }

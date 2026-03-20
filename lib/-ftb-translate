@@ -11,9 +11,6 @@
 # description 通常为 "word -- english description"
 # metadata 中含 \x00word\x00<actual_word>
 
-# 重置异步标志（每次 TAB 开始时清零，启动后台进程时置 1）
-typeset -g _ftb_tr_async_started=0
-
 # 首次调用时懒加载翻译模块
 if [[ -z "$_ftb_tr_initialized" ]]; then
   source "$FZF_TAB_HOME/lib/translate/init.zsh"
@@ -104,9 +101,6 @@ fi
 touch "$_tr_lock"
 _ftb_tr_log info "启动后台翻译: $_tr_cmd (${#_tr_uncached_words[@]} 条)"
 
-# 通知 -ftb-fzf 需要开启 --listen 以便翻译完成后刷新 UI
-typeset -g _ftb_tr_async_started=1
-
 # 将待翻译条目写入临时文件（word\tdesc 格式，每行一条）
 local _tr_tmp="${FTB_TRANSLATE_CACHE_DIR}/.pending_${_tr_cmd}.tsv"
 {
@@ -116,11 +110,7 @@ local _tr_tmp="${FTB_TRANSLATE_CACHE_DIR}/.pending_${_tr_cmd}.tsv"
   done
 } > "$_tr_tmp"
 
-# fzf 临时文件目录（与 -ftb-fzf 使用相同路径）
-local _tr_parent_pid="$$"
-local _tr_fzf_tmp="${TMPPREFIX:-/tmp/zsh}-fzf-tab-${USER}"
-
-# 启动独立 zsh 进程在后台完成翻译并写回缓存，完成后刷新 fzf UI
+# 启动独立 zsh 进程在后台完成翻译并写回缓存
 FZF_TAB_HOME="$FZF_TAB_HOME" \
 FTB_TRANSLATE_API="$FTB_TRANSLATE_API" \
 FTB_TRANSLATE_LANG="$FTB_TRANSLATE_LANG" \
@@ -136,10 +126,8 @@ zsh -c '
   source "$FZF_TAB_HOME/lib/translate/key.zsh"
   source "$FZF_TAB_HOME/lib/translate/deepl.zsh"
 
-  local cmd="$1" tmp="$2" parent_pid="$3" fzf_tmp="$4"
+  local cmd="$1" tmp="$2"
   local cache_var="_ftb_tr_cache_${cmd}"
-  local completions_file="$fzf_tmp/completions.$parent_pid"
-  local port_file="$fzf_tmp/fzf_listen.$parent_pid"
 
   _ftb_tr_log info "[后台] 启动: $cmd"
 
@@ -184,55 +172,5 @@ zsh -c '
 
   _ftb_tr_cache_save "$cmd"
   rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
-  _ftb_tr_log info "[后台] 缓存已写入: $cmd"
-
-  # ── 刷新 fzf UI ──────────────────────────────────────────────────────────
-  # 等待 -ftb-fzf 写入端口文件（fzf --listen 启动后才写入）
-  # 翻译 API 通常需要 1-3s，fzf 启动 <0.1s，大多数情况下端口文件已存在
-  local _wait=0
-  while [[ ! -f "$port_file" ]] && (( _wait < 50 )); do
-    sleep 0.1
-    (( _wait++ ))
-  done
-
-  if [[ ! -f "$port_file" || ! -f "$completions_file" ]]; then
-    _ftb_tr_log debug "[后台] fzf 已退出或不支持 --listen，跳过 UI 刷新"
-    return
-  fi
-
-  local fzf_port=$(<"$port_file")
-  _ftb_tr_log info "[后台] 准备更新 fzf UI (port=$fzf_port)"
-
-  # 将 (word, orig_desc, translation) 写入临时 TSV 文件
-  # 用 parent_pid 保证文件名唯一，避免并发冲突
-  local pairs_file="${FTB_TRANSLATE_CACHE_DIR}/.pairs_${cmd}_${parent_pid}.tsv"
-  for (( i=1; i<=${#words[@]}; i++ )); do
-    [[ -n "${translations[$i]}" ]] || continue
-    print -r -- "${words[$i]}"$'\t'"${descs[$i]}"$'\t'"${translations[$i]}"
-  done > "$pairs_file"
-  _ftb_tr_log debug "[后台] pairs_file 已写入: $(wc -l < "$pairs_file") 条"
-
-  # 调用独立 Python 脚本替换 completions 文件中的英文描述
-  # 独立脚本彻底规避三层引号的转义问题
-  if "$_FTB_TR_PYTHON" "$FZF_TAB_HOME/lib/translate/update_completions.py" \
-      "$completions_file" "$pairs_file" 2>>"$_FTB_TR_LOG_FILE"; then
-    _ftb_tr_log info "[后台] completions 文件已更新"
-  else
-    _ftb_tr_log warn "[后台] completions 文件更新失败"
-  fi
-  rm -f "$pairs_file"
-
-  # 向 fzf --listen 发送 reload 命令，刷新补全列表
-  # 若 fzf 尚未就绪则重试（最多 3 秒），端口文件消失（fzf 已退出）则立即放弃
-  local _tries=0
-  while [[ -f "$port_file" ]] && (( _tries < 30 )); do
-    if curl -s --max-time 1 "http://127.0.0.1:$fzf_port" \
-        -d "reload:cat $completions_file" 2>/dev/null; then
-      _ftb_tr_log info "[后台] fzf reload 命令已发送"
-      break
-    fi
-    sleep 0.1
-    (( _tries++ ))
-  done
-' -- "$_tr_cmd" "$_tr_tmp" "$_tr_parent_pid" "$_tr_fzf_tmp" \
-  </dev/null >/dev/null 2>/dev/null &!
+  _ftb_tr_log info "[后台] 完成: $cmd"
+' -- "$_tr_cmd" "$_tr_tmp" </dev/null >/dev/null 2>/dev/null &!
