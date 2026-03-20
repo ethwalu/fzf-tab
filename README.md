@@ -162,6 +162,7 @@ First install translate-shell (`brew install translate-shell` or see [upstream](
 ```zsh
 zstyle ':fzf-tab:*' translate true
 export FTB_TRANSLATE_API=trans
+export FTB_TRANSLATE_LANG="zh-CN"  # translate-shell uses BCP 47 codes
 ```
 
 **Optional settings:**
@@ -171,10 +172,19 @@ export FTB_TRANSLATE_API=trans
 export FTB_TRANSLATE_API=deepl
 
 # Target language (default: ZH)
-# DeepL uses uppercase codes: ZH, DE, FR, JA ...
-# translate-shell uses BCP 47 codes: zh-CN, de, fr, ja ...
-# Set this to match the format expected by your chosen backend
+# DeepL uses uppercase ISO codes — see https://www.deepl.com/docs-api/translate-text
+#   ZH, ZH-HANS, ZH-HANT, JA, KO, DE, FR, ES, RU, AR ...
+# translate-shell uses BCP 47 codes — see https://github.com/soimort/translate-shell/wiki/Languages
+# or run: trans -list-all
+#   zh-CN, zh-TW, ja, ko, de, fr, es, ru, ar, pt-BR, pt-PT ...
 export FTB_TRANSLATE_LANG="ZH"
+
+# translate-shell engine (default: google, alternatives: bing, yandex, apertium, ...)
+# Run `trans -list-engines` to see all available engines
+export FTB_TRANSLATE_ENGINE=google
+
+# translate-shell chunk size — Google Translate has a per-request character limit (default: 10)
+export FTB_TRANSLATE_CHUNK_SIZE=10
 
 # API timeout in seconds (default: 10, DeepL only)
 export FTB_TRANSLATE_TIMEOUT=10

@@ -4,6 +4,10 @@
 typeset -g FTB_TRANSLATE_API="${FTB_TRANSLATE_API:-deepl}"
 typeset -g FTB_TRANSLATE_LANG="${FTB_TRANSLATE_LANG:-ZH}"
 typeset -g FTB_TRANSLATE_TIMEOUT="${FTB_TRANSLATE_TIMEOUT:-10}"
+# translate-shell 每次请求的分块大小（Google Translate 单次有字符数限制）
+typeset -g FTB_TRANSLATE_CHUNK_SIZE="${FTB_TRANSLATE_CHUNK_SIZE:-10}"
+# translate-shell 翻译引擎（默认 google，可选 bing、yandex 等）
+typeset -g FTB_TRANSLATE_ENGINE="${FTB_TRANSLATE_ENGINE:-google}"
 typeset -g FTB_TRANSLATE_CACHE_DIR="${FTB_TRANSLATE_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/fzf-tab/translate}"
 typeset -g FTB_TRANSLATE_KEY_DIR="${FTB_TRANSLATE_KEY_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/fzf-tab}"
 
