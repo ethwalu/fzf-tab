@@ -18,6 +18,7 @@ if [[ -z "$_ftb_tr_initialized" ]]; then
   source "$FZF_TAB_HOME/lib/translate/cache.zsh"
   source "$FZF_TAB_HOME/lib/translate/key.zsh"
   source "$FZF_TAB_HOME/lib/translate/deepl.zsh"
+  source "$FZF_TAB_HOME/lib/translate/trans.zsh"
   typeset -g _ftb_tr_initialized=1
   _ftb_tr_log info "翻译模块初始化完成（API=$FTB_TRANSLATE_API, LANG=$FTB_TRANSLATE_LANG）"
 fi
@@ -125,6 +126,7 @@ zsh -c '
   source "$FZF_TAB_HOME/lib/translate/cache.zsh"
   source "$FZF_TAB_HOME/lib/translate/key.zsh"
   source "$FZF_TAB_HOME/lib/translate/deepl.zsh"
+  source "$FZF_TAB_HOME/lib/translate/trans.zsh"
 
   local cmd="$1" tmp="$2"
   local cache_var="_ftb_tr_cache_${cmd}"
@@ -153,8 +155,16 @@ zsh -c '
 
   _ftb_tr_log info "[后台] 开始翻译: $cmd (${#descs[@]} 条)"
 
-  # 批量调用 DeepL
-  local -a translations=("${(@f)$(_ftb_tr_deepl_batch "${descs[@]}")}")
+  # 根据 API 类型调用相应翻译后端
+  local -a translations
+  case "$FTB_TRANSLATE_API" in
+    trans)
+      translations=("${(@f)$(_ftb_tr_trans_batch "${descs[@]}")}")
+      ;;
+    deepl|*)
+      translations=("${(@f)$(_ftb_tr_deepl_batch "${descs[@]}")}")
+      ;;
+  esac
 
   if (( ${#translations[@]} == 0 )); then
     _ftb_tr_log error "[后台] 翻译失败，无结果返回: $cmd"

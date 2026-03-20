@@ -1,4 +1,5 @@
 # fzf-tab 翻译功能初始化
+# 支持的 API：deepl（需密钥）、trans（需安装 translate-shell）
 
 typeset -g FTB_TRANSLATE_API="${FTB_TRANSLATE_API:-deepl}"
 typeset -g FTB_TRANSLATE_LANG="${FTB_TRANSLATE_LANG:-ZH}"

@@ -128,27 +128,55 @@ zstyle ':fzf-tab:*' switch-group '<' '>'
 
 ## Translation
 
-fzf-tab has built-in support for translating completion descriptions via the [DeepL](https://www.deepl.com/pro-api) API. On first `<Tab>`, descriptions are translated and cached; subsequent completions load from cache in under 1ms.
+fzf-tab has built-in support for translating completion descriptions. Translations are performed asynchronously in a background process; on first `<Tab>` descriptions are sent for translation and cached, subsequent completions load from cache in under 1ms.
 
-**Prerequisites:** `python3` and `curl` must be available in `$PATH`.
+Two backends are supported:
 
-**Setup:**
+| Backend | Requires | Notes |
+|---------|----------|-------|
+| `deepl` (default) | `curl`, `python3`, [DeepL API key](https://www.deepl.com/pro-api) | High quality, free tier available |
+| `trans` | [translate-shell](https://github.com/soimort/translate-shell) | No API key needed, uses Google Translate by default |
+
+**Setup — DeepL:**
 
 ```zsh
-# 1. Enable translation
+# 1. Enable translation (deepl is the default backend)
 zstyle ':fzf-tab:*' translate true
 
 # 2. Set your DeepL API key (free tier keys end with :fx)
 export FTB_DEEPL_KEY="your-api-key:fx"
 ```
 
+You can also store the key in a file instead of an environment variable:
+
+```zsh
+# Key file: $FTB_TRANSLATE_KEY_DIR/deepl.key (chmod 600)
+echo "your-api-key:fx" > ~/.config/fzf-tab/deepl.key
+chmod 600 ~/.config/fzf-tab/deepl.key
+```
+
+**Setup — translate-shell:**
+
+First install translate-shell (`brew install translate-shell` or see [upstream](https://github.com/soimort/translate-shell)).
+
+```zsh
+zstyle ':fzf-tab:*' translate true
+export FTB_TRANSLATE_API=trans
+```
+
 **Optional settings:**
 
 ```zsh
+# Translation backend: deepl (default) or trans
+export FTB_TRANSLATE_API=deepl
+
 # Target language (default: ZH)
+# DeepL uses uppercase codes: ZH, DE, FR, JA ...
+# translate-shell uses BCP 47 codes: zh-CN, de, fr, ja ...
+# Set this to match the format expected by your chosen backend
 export FTB_TRANSLATE_LANG="ZH"
 
-# API timeout in seconds (default: 10)
+# API timeout in seconds (default: 10, DeepL only)
 export FTB_TRANSLATE_TIMEOUT=10
 
 # Cache directory (default: ~/.cache/fzf-tab/translate)
@@ -158,17 +186,9 @@ export FTB_TRANSLATE_CACHE_DIR="$HOME/.cache/fzf-tab/translate"
 export FTB_TRANSLATE_KEY_DIR="$HOME/.config/fzf-tab"
 ```
 
-You can also store the key in a file instead of an environment variable:
-
-```zsh
-# Key file: $FTB_TRANSLATE_KEY_DIR/deepl.key (chmod 600, auto-set)
-echo "your-api-key:fx" > ~/.config/fzf-tab/deepl.key
-chmod 600 ~/.config/fzf-tab/deepl.key
-```
-
 **How it works:**
 
-1. On each `<Tab>`, descriptions not yet in cache are sent to DeepL in a single batch request (async background process)
+1. On each `<Tab>`, descriptions not yet in cache are collected and sent to the translation backend in a background process
 2. Results are saved to `~/.cache/fzf-tab/translate/<command>.zsh`
 3. On the next `<Tab>` the translated descriptions are shown instantly from cache
 
