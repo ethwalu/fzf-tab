@@ -1,4 +1,4 @@
-# 工具函数：Python 路径查找、URL 编码
+# 工具函数：Python 路径查找、URL 编码、日志
 
 typeset -g _FTB_TR_PYTHON=""
 
@@ -10,6 +10,15 @@ typeset -g _FTB_TR_PYTHON=""
       return
     fi
   done
+}
+
+# 日志输出（仅在 FTB_TRANSLATE_DEBUG=1 时写入日志文件）
+# 用法：_ftb_tr_log <level> <message>
+# level: debug | info | warn | error
+_ftb_tr_log() {
+  (( FTB_TRANSLATE_DEBUG )) || return 0
+  local level="$1"; shift
+  print "$(date '+%H:%M:%S') [${(U)level}] $*" >> "$_FTB_TR_LOG_FILE"
 }
 
 # URL 编码

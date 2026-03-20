@@ -170,6 +170,15 @@ chmod 600 ~/.config/fzf-tab/deepl.key
 2. Results are saved to `~/.cache/fzf-tab/translate/<command>.zsh`
 3. On the next `<Tab>` the translated descriptions are shown instantly from cache
 
+**Debugging:**
+
+```zsh
+export FTB_TRANSLATE_DEBUG=1
+# Logs are written to $FTB_TRANSLATE_CACHE_DIR/debug.log
+# (stderr is not visible during TAB completion)
+tail -f ~/.cache/fzf-tab/translate/debug.log
+```
+
 ## Tmux
 
 If you're using tmux >= 3.2, we provide a script `ftb-tmux-popup` to make full use of it's "popup" feature.

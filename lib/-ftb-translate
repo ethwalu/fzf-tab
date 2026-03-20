@@ -3,6 +3,8 @@
 #
 # 触发条件：zstyle ':fzf-tab:*' translate true
 # API 密钥：export FTB_DEEPL_KEY="your-key:fx"
+# 调试日志：export FTB_TRANSLATE_DEBUG=1
+#           日志文件：$FTB_TRANSLATE_CACHE_DIR/debug.log
 #
 # _ftb_compcap 元素格式：
 #   <description>\x02<metadata>
@@ -17,6 +19,7 @@ if [[ -z "$_ftb_tr_initialized" ]]; then
   source "$FZF_TAB_HOME/lib/translate/key.zsh"
   source "$FZF_TAB_HOME/lib/translate/deepl.zsh"
   typeset -g _ftb_tr_initialized=1
+  _ftb_tr_log info "翻译模块初始化完成（API=$FTB_TRANSLATE_API, LANG=$FTB_TRANSLATE_LANG）"
 fi
 
 (( $#_ftb_compcap == 0 )) && return
@@ -34,7 +37,11 @@ if [[ -n "$_ftb_curcontext" ]]; then
   done
 fi
 [[ -z "$_tr_cmd" && -n "$BUFFER" ]] && _tr_cmd="${${BUFFER## #}%% *}"
-[[ -z "$_tr_cmd" ]] && return
+if [[ -z "$_tr_cmd" ]]; then
+  _ftb_tr_log debug "未检测到命令，跳过翻译（curcontext=$_ftb_curcontext）"
+  return
+fi
+_ftb_tr_log debug "检测到命令: $_tr_cmd (curcontext=$_ftb_curcontext, compcap=${#_ftb_compcap[@]} 条)"
 
 # 每次重新从磁盘加载缓存（后台翻译完成后可能有新数据）
 _ftb_tr_cache_load "$_tr_cmd" 2>/dev/null
@@ -46,6 +53,7 @@ local _tr_cache_var="_ftb_tr_cache_${_tr_cmd}"
 local -a _tr_new_compcap=()
 local -a _tr_uncached_words=() _tr_uncached_descs=()
 local _tr_item _tr_dscr _tr_meta _tr_word _tr_eng _tr_result
+local _tr_hits=0
 
 for _tr_item in "${_ftb_compcap[@]}"; do
   _tr_dscr="${_tr_item%%$'\2'*}"
@@ -56,6 +64,7 @@ for _tr_item in "${_ftb_compcap[@]}"; do
   _tr_result="${${(P)_tr_cache_var}[$_tr_word]}"
 
   if [[ -n "$_tr_result" ]]; then
+    (( _tr_hits++ ))
     # 替换 -- 后面的英文描述为翻译结果
     if [[ "$_tr_dscr" == *" -- "* ]]; then
       _tr_new_compcap+=("${_tr_dscr%% -- *} -- ${_tr_result}"$'\2'"${_tr_meta}")
@@ -75,6 +84,7 @@ for _tr_item in "${_ftb_compcap[@]}"; do
   fi
 done
 
+_ftb_tr_log debug "替换统计: 总计=${#_ftb_compcap[@]} 命中=$_tr_hits 未缓存=${#_tr_uncached_words[@]}"
 _ftb_compcap=("${_tr_new_compcap[@]}")
 
 # 有未缓存条目且无后台翻译进行中，启动异步翻译
@@ -83,9 +93,13 @@ if (( ${#_tr_uncached_words[@]} == 0 )); then
 fi
 
 local _tr_lock="${FTB_TRANSLATE_CACHE_DIR}/.translating_${_tr_cmd}"
-[[ -f "$_tr_lock" ]] && return
+if [[ -f "$_tr_lock" ]]; then
+  _ftb_tr_log debug "后台翻译进行中，跳过: $_tr_cmd"
+  return
+fi
 
 touch "$_tr_lock"
+_ftb_tr_log info "启动后台翻译: $_tr_cmd (${#_tr_uncached_words[@]} 条)"
 
 # 将待翻译条目写入临时文件（word\tdesc 格式，每行一条）
 local _tr_tmp="${FTB_TRANSLATE_CACHE_DIR}/.pending_${_tr_cmd}.tsv"
@@ -103,6 +117,7 @@ FTB_TRANSLATE_LANG="$FTB_TRANSLATE_LANG" \
 FTB_TRANSLATE_TIMEOUT="$FTB_TRANSLATE_TIMEOUT" \
 FTB_TRANSLATE_CACHE_DIR="$FTB_TRANSLATE_CACHE_DIR" \
 FTB_TRANSLATE_KEY_DIR="$FTB_TRANSLATE_KEY_DIR" \
+FTB_TRANSLATE_DEBUG="$FTB_TRANSLATE_DEBUG" \
 FTB_DEEPL_KEY="${FTB_DEEPL_KEY:-}" \
 zsh -c '
   source "$FZF_TAB_HOME/lib/translate/init.zsh"
@@ -113,6 +128,8 @@ zsh -c '
 
   local cmd="$1" tmp="$2"
   local cache_var="_ftb_tr_cache_${cmd}"
+
+  _ftb_tr_log info "[后台] 启动: $cmd"
 
   # 加载现有缓存（如有）
   _ftb_tr_cache_load "$cmd" 2>/dev/null
@@ -128,12 +145,21 @@ zsh -c '
   rm -f "$tmp"
 
   if (( ${#descs[@]} == 0 )); then
+    _ftb_tr_log warn "[后台] 待翻译列表为空: $cmd"
     rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
     return
   fi
 
+  _ftb_tr_log info "[后台] 开始翻译: $cmd (${#descs[@]} 条)"
+
   # 批量调用 DeepL
   local -a translations=("${(@f)$(_ftb_tr_deepl_batch "${descs[@]}")}")
+
+  if (( ${#translations[@]} == 0 )); then
+    _ftb_tr_log error "[后台] 翻译失败，无结果返回: $cmd"
+    rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
+    return 1
+  fi
 
   # 写入缓存
   local i k v
@@ -146,4 +172,5 @@ zsh -c '
 
   _ftb_tr_cache_save "$cmd"
   rm -f "${FTB_TRANSLATE_CACHE_DIR}/.translating_${cmd}"
+  _ftb_tr_log info "[后台] 完成: $cmd"
 ' -- "$_tr_cmd" "$_tr_tmp" </dev/null >/dev/null 2>/dev/null &!

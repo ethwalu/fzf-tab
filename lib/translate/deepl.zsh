@@ -7,11 +7,16 @@ _ftb_tr_deepl_batch() {
   (( ${#texts[@]} == 0 )) && return 1
 
   local key
-  key=$(_ftb_tr_get_key deepl) || return 1
+  key=$(_ftb_tr_get_key deepl) || {
+    _ftb_tr_log error "DeepL 密钥未设置（FTB_DEEPL_KEY 或 $FTB_TRANSLATE_KEY_DIR/deepl.key）"
+    return 1
+  }
 
   # 免费版 key 以 :fx 结尾，使用不同端点
   local endpoint="https://api-free.deepl.com/v2/translate"
   [[ "$key" != *":fx" ]] && endpoint="https://api.deepl.com/v2/translate"
+
+  _ftb_tr_log info "DeepL 请求: ${#texts[@]} 条 -> $endpoint"
 
   # 为每条文本构建 -d text=... 参数
   local -a params=()
@@ -28,7 +33,12 @@ _ftb_tr_deepl_batch() {
     -d "target_lang=${FTB_TRANSLATE_LANG}" \
     "$endpoint" 2>/dev/null)
 
-  [[ -z "$response" ]] && return 1
+  if [[ -z "$response" ]]; then
+    _ftb_tr_log error "DeepL 响应为空（网络错误或超时）"
+    return 1
+  fi
+
+  _ftb_tr_log debug "DeepL 响应: ${#response} 字节"
 
   # 提取所有翻译结果，每行一条
   "$_FTB_TR_PYTHON" -c "
@@ -37,7 +47,8 @@ try:
     d = json.loads(sys.stdin.read())
     for t in d['translations']:
         print(t['text'])
-except Exception:
+except Exception as e:
+    sys.stderr.write(str(e) + '\n')
     sys.exit(1)
 " <<< "$response"
 }
