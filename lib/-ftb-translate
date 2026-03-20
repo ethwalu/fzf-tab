@@ -203,49 +203,24 @@ zsh -c '
   local fzf_port=$(<"$port_file")
   _ftb_tr_log info "[后台] 准备更新 fzf UI (port=$fzf_port)"
 
-  # 将 (word, orig_desc, translation) 写入临时文件供 Python 做替换
-  local pairs_file="${FTB_TRANSLATE_CACHE_DIR}/.pairs_${cmd}.tsv"
+  # 将 (word, orig_desc, translation) 写入临时 TSV 文件
+  # 用 parent_pid 保证文件名唯一，避免并发冲突
+  local pairs_file="${FTB_TRANSLATE_CACHE_DIR}/.pairs_${cmd}_${parent_pid}.tsv"
   for (( i=1; i<=${#words[@]}; i++ )); do
     [[ -n "${translations[$i]}" ]] || continue
-    print -r -- "${words[$i]}"$'"'"'\t'"'"'"${descs[$i]}"$'"'"'\t'"'"'"${translations[$i]}"
+    print -r -- "${words[$i]}"$'\t'"${descs[$i]}"$'\t'"${translations[$i]}"
   done > "$pairs_file"
+  _ftb_tr_log debug "[后台] pairs_file 已写入: $(wc -l < "$pairs_file") 条"
 
-  # 就地替换 completions.* 文件中的英文描述
-  # 格式：…\x00word -- orig_desc\x00… → …\x00word -- trans_desc\x00…
-  "$_FTB_TR_PYTHON" -c "
-import sys, os
-
-completions_file = sys.argv[1]
-pairs_file = sys.argv[2]
-
-pairs = []
-try:
-    with open(pairs_file, '\''r'\'', encoding='\''utf-8'\'', errors='\''replace'\'') as f:
-        for line in f:
-            parts = line.rstrip('\''\n'\'').split('\''\t'\'', 2)
-            if len(parts) == 3:
-                pairs.append(parts)
-    os.unlink(pairs_file)
-except Exception:
-    sys.exit(1)
-
-if not pairs:
-    sys.exit(0)
-
-try:
-    with open(completions_file, '\''rb'\'') as f:
-        content = f.read()
-except Exception:
-    sys.exit(1)
-
-for word, orig, trans in pairs:
-    old = ('\''\x00'\'' + word + '\'' -- '\'' + orig).encode('\''utf-8'\'')
-    new = ('\''\x00'\'' + word + '\'' -- '\'' + trans).encode('\''utf-8'\'')
-    content = content.replace(old, new)
-
-with open(completions_file, '\''wb'\'') as f:
-    f.write(content)
-" "$completions_file" "$pairs_file" 2>/dev/null
+  # 调用独立 Python 脚本替换 completions 文件中的英文描述
+  # 独立脚本彻底规避三层引号的转义问题
+  if "$_FTB_TR_PYTHON" "$FZF_TAB_HOME/lib/translate/update_completions.py" \
+      "$completions_file" "$pairs_file" 2>>"$_FTB_TR_LOG_FILE"; then
+    _ftb_tr_log info "[后台] completions 文件已更新"
+  else
+    _ftb_tr_log warn "[后台] completions 文件更新失败"
+  fi
+  rm -f "$pairs_file"
 
   # 向 fzf --listen 发送 reload 命令，刷新补全列表
   # 若 fzf 尚未就绪则重试（最多 3 秒），端口文件消失（fzf 已退出）则立即放弃
@@ -253,7 +228,7 @@ with open(completions_file, '\''wb'\'') as f:
   while [[ -f "$port_file" ]] && (( _tries < 30 )); do
     if curl -s --max-time 1 "http://127.0.0.1:$fzf_port" \
         -d "reload:cat $completions_file" 2>/dev/null; then
-      _ftb_tr_log info "[后台] fzf UI 已刷新"
+      _ftb_tr_log info "[后台] fzf reload 命令已发送"
       break
     fi
     sleep 0.1
