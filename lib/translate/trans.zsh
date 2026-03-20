@@ -6,8 +6,7 @@ _ftb_tr_trans_available() {
   command -v trans &>/dev/null
 }
 
-# 批量翻译（分块调用 trans，每块不超过 FTB_TRANSLATE_CHUNK_SIZE 条）
-# Google Translate 单次请求有字符数限制，分块可避免超限导致结果不完整
+# 批量翻译（逐条调用 trans，保证输出行数与输入一致）
 # 输出：每行一条翻译结果，顺序与输入一致
 _ftb_tr_trans_batch() {
   local -a texts=("$@")
@@ -20,13 +19,13 @@ _ftb_tr_trans_batch() {
 
   local target="$FTB_TRANSLATE_LANG"
   local engine="${FTB_TRANSLATE_ENGINE:-google}"
-  local chunk_size="${FTB_TRANSLATE_CHUNK_SIZE:-10}"
   local ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-  _ftb_tr_log info "translate-shell 请求: ${#texts[@]} 条 -> $target（引擎=$engine，每块 $chunk_size 条）"
+  _ftb_tr_log info "translate-shell 请求: ${#texts[@]} 条 -> $target（引擎=$engine）"
 
-  local i
-  for (( i=1; i<=${#texts[@]}; i+=chunk_size )); do
-    local -a chunk=("${texts[@]:$((i-1)):$chunk_size}")
-    trans -b -e "$engine" -u "$ua" ":${target}" -- "${chunk[@]}" 2>/dev/null
+  # 每条单独调用，保证 1 输入 = 1 输出
+  # trans 多参数时可能合并为一个请求，导致输出行数与输入不匹配
+  local t
+  for t in "${texts[@]}"; do
+    trans -b -e "$engine" -u "$ua" ":${target}" -- "$t" 2>/dev/null
   done
 }

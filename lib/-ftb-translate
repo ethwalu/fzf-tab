@@ -10,6 +10,9 @@
 #   <description>\x02<metadata>
 # description 通常为 "word -- english description"
 # metadata 中含 \x00word\x00<actual_word>
+#
+# 缓存策略：以英文描述为 key，翻译结果为 value。
+# 同一描述在不同命令上下文（如 docker 和 docker image）下总能命中相同翻译。
 
 # 首次调用时懒加载翻译模块
 if [[ -z "$_ftb_tr_initialized" ]]; then
@@ -25,21 +28,11 @@ fi
 
 (( $#_ftb_compcap == 0 )) && return
 
-# 从补全上下文检测当前命令名
-local _tr_cmd=""
-if [[ -n "$_ftb_curcontext" ]]; then
-  local -a _tr_ctx=("${(@s.:.)_ftb_curcontext}")
-  local _tr_i
-  for (( _tr_i=1; _tr_i<=${#_tr_ctx[@]}; _tr_i++ )); do
-    if [[ "${_tr_ctx[$_tr_i]}" == "complete" && -n "${_tr_ctx[$((_tr_i+1))]}" ]]; then
-      _tr_cmd="${_tr_ctx[$((_tr_i+1))]}"
-      break
-    fi
-  done
-fi
-[[ -z "$_tr_cmd" && -n "$BUFFER" ]] && _tr_cmd="${${BUFFER## #}%% *}"
+# 用 BUFFER 第一个词作为缓存文件名，保证每次 TAB 结果一致
+# curcontext 中的函数名（如 _docker-image-）在不同调用间可能不同，导致缓存文件命中失败
+local _tr_cmd="${${BUFFER## #}%% *}"
 if [[ -z "$_tr_cmd" ]]; then
-  _ftb_tr_log debug "未检测到命令，跳过翻译（curcontext=$_ftb_curcontext）"
+  _ftb_tr_log debug "BUFFER 为空，跳过翻译（curcontext=$_ftb_curcontext）"
   return
 fi
 _ftb_tr_log debug "检测到命令: $_tr_cmd (curcontext=$_ftb_curcontext, compcap=${#_ftb_compcap[@]} 条)"
@@ -51,8 +44,9 @@ local _tr_cache_var="_ftb_tr_cache_${_tr_cmd}"
 (( ${(P)+_tr_cache_var} )) || typeset -gA "$_tr_cache_var"
 
 # 遍历 _ftb_compcap，替换已缓存的描述，收集未缓存的
+# 缓存 key 为英文描述文本，避免同名 word 在不同子命令上下文中命中错误翻译
 local -a _tr_new_compcap=()
-local -a _tr_uncached_words=() _tr_uncached_descs=()
+local -a _tr_uncached_descs=()
 local _tr_item _tr_dscr _tr_meta _tr_word _tr_eng _tr_result
 local _tr_hits=0
 
@@ -62,34 +56,32 @@ for _tr_item in "${_ftb_compcap[@]}"; do
   _tr_word="${_tr_meta##*$'\0word\0'}"
   _tr_word="${_tr_word%%$'\0'*}"
 
-  _tr_result="${${(P)_tr_cache_var}[$_tr_word]}"
+  if [[ "$_tr_dscr" == *" -- "* ]]; then
+    _tr_eng="${_tr_dscr#* -- }"
+  else
+    _tr_eng=""
+  fi
 
-  if [[ -n "$_tr_result" ]]; then
+  # 以英文描述为 key 查缓存（用 eval 间接访问关联数组，${${(P)var}[key]} 对 assoc array 不生效）
+  _tr_result=""
+  [[ -n "$_tr_eng" ]] && eval "_tr_result=\${${_tr_cache_var}[${(q)_tr_eng}]}"
+
+  if [[ -n "$_tr_eng" && -n "$_tr_result" ]]; then
     (( _tr_hits++ ))
-    # 替换 -- 后面的英文描述为翻译结果
-    if [[ "$_tr_dscr" == *" -- "* ]]; then
-      _tr_new_compcap+=("${_tr_dscr%% -- *} -- ${_tr_result}"$'\2'"${_tr_meta}")
-    else
-      _tr_new_compcap+=("${_tr_word} -- ${_tr_result}"$'\2'"${_tr_meta}")
-    fi
+    _tr_new_compcap+=("${_tr_dscr%% -- *} -- ${_tr_result}"$'\2'"${_tr_meta}")
   else
     _tr_new_compcap+=("$_tr_item")
-    # 收集有英文描述的未缓存条目
-    if [[ "$_tr_dscr" == *" -- "* ]]; then
-      _tr_eng="${_tr_dscr#* -- }"
-      if [[ -n "$_tr_eng" ]]; then
-        _tr_uncached_words+=("$_tr_word")
-        _tr_uncached_descs+=("$_tr_eng")
-      fi
+    if [[ -n "$_tr_eng" && -z "$_tr_result" ]]; then
+      _tr_uncached_descs+=("$_tr_eng")
     fi
   fi
 done
 
-_ftb_tr_log debug "替换统计: 总计=${#_ftb_compcap[@]} 命中=$_tr_hits 未缓存=${#_tr_uncached_words[@]}"
+_ftb_tr_log debug "替换统计: 总计=${#_ftb_compcap[@]} 命中=$_tr_hits 未缓存=${#_tr_uncached_descs[@]}"
 _ftb_compcap=("${_tr_new_compcap[@]}")
 
 # 有未缓存条目且无后台翻译进行中，启动异步翻译
-if (( ${#_tr_uncached_words[@]} == 0 )); then
+if (( ${#_tr_uncached_descs[@]} == 0 )); then
   return
 fi
 
@@ -100,14 +92,14 @@ if [[ -f "$_tr_lock" ]]; then
 fi
 
 touch "$_tr_lock"
-_ftb_tr_log info "启动后台翻译: $_tr_cmd (${#_tr_uncached_words[@]} 条)"
+_ftb_tr_log info "启动后台翻译: $_tr_cmd (${#_tr_uncached_descs[@]} 条)"
 
-# 将待翻译条目写入临时文件（word\tdesc 格式，每行一条）
+# 将待翻译英文描述写入临时文件，每行一条
 local _tr_tmp="${FTB_TRANSLATE_CACHE_DIR}/.pending_${_tr_cmd}.tsv"
 {
-  local _tr_j
-  for (( _tr_j=1; _tr_j<=${#_tr_uncached_words[@]}; _tr_j++ )); do
-    print -r -- "${_tr_uncached_words[$_tr_j]}"$'\t'"${_tr_uncached_descs[$_tr_j]}"
+  local _tr_desc
+  for _tr_desc in "${_tr_uncached_descs[@]}"; do
+    print -r -- "$_tr_desc"
   done
 } > "$_tr_tmp"
 
@@ -140,11 +132,10 @@ zsh -c '
   _ftb_tr_cache_load "$cmd" 2>/dev/null
   typeset -gA "$cache_var" 2>/dev/null
 
-  # 读取待翻译条目
-  local -a words=() descs=()
-  local w d
-  while IFS=$'"'"'\t'"'"' read -r w d; do
-    words+=("$w")
+  # 读取待翻译英文描述，每行一条
+  local -a descs=()
+  local d
+  while IFS= read -r d; do
     descs+=("$d")
   done < "$tmp"
   rm -f "$tmp"
@@ -168,19 +159,25 @@ zsh -c '
       ;;
   esac
 
+  # 验证翻译结果行数与输入一致，不一致说明 trans 输出格式有问题
+  if (( ${#translations[@]} != ${#descs[@]} )); then
+    _ftb_tr_log error "[后台] 翻译结果行数不匹配: 输入=${#descs[@]} 输出=${#translations[@]}，丢弃结果"
+    rm -f "$_lock"
+    return 1
+  fi
+
   if (( ${#translations[@]} == 0 )); then
     _ftb_tr_log error "[后台] 翻译失败，无结果返回: $cmd"
     rm -f "$_lock"
     return 1
   fi
 
-  # 写入缓存
-  local i k v
-  for (( i=1; i<=${#words[@]}; i++ )); do
+  # 以英文描述为 key 写入缓存
+  # 用 (q) 标志对 key/value 正确引号，避免含空格时 eval 出错
+  local i
+  for (( i=1; i<=${#descs[@]}; i++ )); do
     [[ -n "${translations[$i]}" ]] || continue
-    k="${words[$i]}"
-    v="${translations[$i]}"
-    eval "${cache_var}[\$k]=\$v"
+    eval "${cache_var}[${(q)descs[$i]}]=${(q)translations[$i]}"
   done
 
   _ftb_tr_cache_save "$cmd"
