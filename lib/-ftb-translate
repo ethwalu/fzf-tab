@@ -31,6 +31,8 @@ fi
 # 用 BUFFER 第一个词作为缓存文件名，保证每次 TAB 结果一致
 # curcontext 中的函数名（如 _docker-image-）在不同调用间可能不同，导致缓存文件命中失败
 local _tr_cmd="${${BUFFER## #}%% *}"
+# 将命令名中的连字符替换为下划线，确保可用作 zsh 变量名和缓存文件名
+_tr_cmd="${_tr_cmd//-/_}"
 if [[ -z "$_tr_cmd" ]]; then
   _ftb_tr_log debug "BUFFER 为空，跳过翻译（curcontext=$_ftb_curcontext）"
   return
