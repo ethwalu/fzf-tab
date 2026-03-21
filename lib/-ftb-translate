@@ -35,6 +35,13 @@ if [[ -z "$_tr_cmd" ]]; then
   _ftb_tr_log debug "BUFFER 为空，跳过翻译（curcontext=$_ftb_curcontext）"
   return
 fi
+
+# 仅当 BUFFER 中有空格时才翻译（即命令已输完，正在补全参数或子命令）
+# 若没有空格，说明用户仍在补全命令名本身（如 ssh-co<TAB>），不应翻译
+if [[ "${BUFFER## #}" != *" "* ]]; then
+  _ftb_tr_log debug "BUFFER 无空格，跳过翻译（仍在补全命令名）: $BUFFER"
+  return
+fi
 _ftb_tr_log debug "检测到命令: $_tr_cmd (curcontext=$_ftb_curcontext, compcap=${#_ftb_compcap[@]} 条)"
 
 # 每次重新从磁盘加载缓存（后台翻译完成后可能有新数据）
